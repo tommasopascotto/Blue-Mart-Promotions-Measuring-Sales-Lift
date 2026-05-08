@@ -1,7 +1,7 @@
 clear all
 set more off
 
-cd "C:\Users\Tomma\OneDrive\Desktop\Marketing Analytics\GP\Final Codes"
+cd "C:\Users\Tomma\OneDrive\Desktop\Personali\past courses\Marketing Analytics\GP\Final Codes"
 
 import delimited using "30420_Project2_data_Group1_sales.csv", ///
     varnames(1) case(lower) clear
@@ -22,8 +22,8 @@ collapse (sum) qty_total = quantity ///
          (max) promo_active = promo_line, ///
          by(date)
 		 
-label var qty_total     
-label var promo_active  
+label var qty_total "Total quantity sold per day"
+label var promo_active "1 if any promo was active that day" 
 
 *CALENDAR VARIABLES (SEASONAL CONTROLS)
 
@@ -31,27 +31,29 @@ gen year  = year(date)
 gen month = month(date)
 
 gen byte dow = dow(date)
-replace dow = 7 if dow == 0  
-label define dowlbl 1 "Mon" 2 "Tue" 3 "Wed" 4 "Thu" 5 "Fri" 6 "Sat" 7 "Sun"
+replace dow = 1 if inlist(dow, 1, 2, 3, 4, 5)
+replace dow = 0 if inlist(dow, 0, 6)
+
+label define dowlbl 0 "Weekend" 1 "Weekday"
 label values dow dowlbl
 
 * Save base dataset
-save "new_dataset.dta", replace
-export delimited using "new_dataset.csv", replace
+save "df_manipulated.dta", replace
+export delimited using "df_manipulated.csv", replace
 
 * 5. MODEL 1
-gen log_qty = log(qty_total + 1)
-label var log_qty "log(qty_total + 1)"
+gen log_qty = log(qty_total)
+label var log_qty "log(qty_total)"
 
 reg log_qty i.promo_active i.dow i.month
 est store m_log
 
 * Expected effects with and without promo (back-transform to level)
-margins promo_active, expression(exp(predict()) - 1)
+margins promo_active, expression(exp(predict()))
 
 * 6. CONSTRUCTION OF DYNAMIC DATASET (PHASES 5 DAYS PRE/POST)
 
-use "new_dataset.dta", clear
+use "df_manipulated.dta", clear
 sort date
 
 * Find the first and last date with promo active
@@ -69,13 +71,11 @@ display "Promo end:   " %td promo_end
 
 * Define phase:
 * 1 = baseline (default)
-* 2 = pre  (up to 5 days before promo start)
 * 3 = promo
 * 4 = post (up to 5 days after promo end)
 
 gen byte phase = .
 replace phase = 3 if promo_active == 1
-replace phase = 2 if promo_active == 0 & date >= promo_start - 5 & date <  promo_start
 replace phase = 4 if promo_active == 0 & date >  promo_end   & date <= promo_end + 5
 replace phase = 1 if missing(phase)
 
@@ -90,11 +90,11 @@ export delimited using "new_dataset_dynamic_effects_5d.csv", replace
 
 use "new_dataset_dynamic_effects_5d.dta", clear
 
-gen log_qty = log(qty_total + 1)
-label var log_qty "log(qty_total + 1)"
+gen log_qty = log(qty_total)
+label var log_qty "log(qty_total)"
 
 reg log_qty i.phase i.dow i.month
 est store m_log_phase
 
 * Predictions for each phase (back-transformed)
-margins phase, expression(exp(predict()) - 1)
+margins phase, expression(exp(predict()))
